@@ -21,10 +21,11 @@ Minecraft 1.21.11 无界面客户端，并通过真实协议连接回 Velocity�
 在仓库根目录执行：
 
 ```powershell
-.\gradlew.bat -p velocity-bot-manager clean test shadowJar
+.\gradlew.bat -p velocity-bot-manager clean check shadowJar
 ```
 
 产物位于 `velocity-bot-manager/build/libs/VelocityBotManager-0.1.0-SNAPSHOT.jar`。
+`check` 还会从最终阴影 JAR 中加载一次已重定位的协议客户端，避免只验证未打包的开发类路径。
 只需把这个 JAR 放入 Velocity 的 `plugins` 目录。首次启动会生成
 `plugins/velocitybotmanager/config.yml`。
 

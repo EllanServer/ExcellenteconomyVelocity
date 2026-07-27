@@ -119,13 +119,13 @@ public final class BotSession {
         generation.incrementAndGet();
         cancelReconnect();
         ClientSession active = session;
+        session = null;
+        connectedAt = null;
         if (active != null && active.isConnected()) {
             state.set(BotState.STOPPING);
             active.disconnect("Bot stopped by operator");
         }
-        else {
-            state.set(BotState.STOPPED);
-        }
+        state.set(BotState.STOPPED);
     }
 
     public void reconnectNow() {
@@ -133,6 +133,8 @@ public final class BotSession {
         cancelReconnect();
         generation.incrementAndGet();
         ClientSession active = session;
+        session = null;
+        connectedAt = null;
         if (active != null && active.isConnected()) {
             active.disconnect("Bot reconnect requested");
         }
@@ -226,6 +228,12 @@ public final class BotSession {
         }
         else if (packet instanceof ClientboundFinishConfigurationPacket) {
             source.send(clientInformation());
+            // During a backend reconfiguration Velocity may return directly to
+            // GAME without another login packet. Authentication completion proves
+            // this is not the initial configuration sequence.
+            if (authCompleted.get()) {
+                state.set(BotState.PLAY);
+            }
         }
         else if (packet instanceof ClientboundLoginPacket) {
             state.set(BotState.PLAY);

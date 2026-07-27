@@ -47,15 +47,37 @@ tasks {
         archiveBaseName.set("VelocityBotManager")
         archiveClassifier.set("")
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        // Service providers from Adventure and Cloudburst must remain visible to
+        // the transformer even though duplicate classes/resources are excluded.
+        filesMatching("META-INF/services/**") {
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        }
         mergeServiceFiles()
 
         // Keep the embedded protocol client isolated from other Velocity plugins.
         relocate("org.geysermc.mcprotocollib", "dev.nulli0n.vbot.lib.mcprotocollib")
         relocate("org.cloudburstmc", "dev.nulli0n.vbot.lib.cloudburstmc")
+        relocate("io.netty", "dev.nulli0n.vbot.lib.netty")
+        relocate("it.unimi.dsi.fastutil", "dev.nulli0n.vbot.lib.fastutil")
+        relocate("com.google.gson", "dev.nulli0n.vbot.lib.gson")
+        relocate("net.raphimc", "dev.nulli0n.vbot.lib.raphimc")
+        relocate("net.lenni0451", "dev.nulli0n.vbot.lib.lenni0451")
         relocate("org.yaml.snakeyaml", "dev.nulli0n.vbot.lib.snakeyaml")
     }
 
     build {
         dependsOn(shadowJar)
     }
+}
+
+val verifyShadowJar by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Loads the relocated protocol client from the single deployable JAR."
+    dependsOn(tasks.shadowJar)
+    classpath = files(tasks.shadowJar.flatMap { it.archiveFile })
+    mainClass.set("dev.nulli0n.vbot.verify.ProtocolSmokeMain")
+}
+
+tasks.check {
+    dependsOn(verifyShadowJar)
 }
