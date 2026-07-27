@@ -49,7 +49,7 @@ Database:
 
 ## 安装
 
-要求 Java 25、Velocity 4、ExcellentEconomy 2.8、NightCore 2.16，以及 ExcellentEconomy 正在使用的 MySQL/MariaDB。多代理和即时通知建议 Redis 6+。
+构建要求 Java 21；运行时需要与所使用的 Velocity 版本兼容的 Java。ExcellentEconomy 2.8、NightCore 2.16，以及 ExcellentEconomy 正在使用的 MySQL/MariaDB 是必需依赖。多代理和即时通知建议 Redis 6+。
 
 1. 构建：`./gradlew clean test shadowJar`（Windows 使用 `gradlew.bat`）。
 2. 把 `build/libs/ExcellentEconomyVelocity-1.0.0.jar` 放入 Velocity 的 `plugins`。
@@ -58,6 +58,19 @@ Database:
 5. `currencies.<id>.column` 必须与对应货币文件的 `Column_Name` 完全一致。
 
 插件只会额外创建 `eev_transactions`、`eev_notifications`、`eev_campaigns` 和 `eev_pending_grants`，不会修改 ExcellentEconomy 代码或 JAR。
+
+## GitHub 大版本发布
+
+仓库包含 GitHub Actions 自动发布工作流。它只会在推送形如 `vX.0.0` 的大版本标签时运行，例如 `v2.0.0`；普通提交、分支推送、`v1.1.0` 和 `v1.0.1` 都不会触发。
+
+在确认 `main` 已包含要发布的内容后执行：
+
+```bash
+git tag v2.0.0
+git push origin v2.0.0
+```
+
+工作流会使用 Java 21 执行测试和 `shadowJar`，以 `2.0.0` 作为插件及 JAR 版本，上传构建产物，并自动创建同名 GitHub Release 与 Release Notes。
 
 ## 验证
 
