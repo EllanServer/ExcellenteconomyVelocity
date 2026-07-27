@@ -16,8 +16,8 @@ java {
 repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
-    maven("https://repo.opencollab.dev/maven-releases/")
-    maven("https://repo.opencollab.dev/maven-snapshots/")
+    maven("https://repo.opencollab.dev/main/")
+    maven("https://jitpack.io")
 }
 
 dependencies {
