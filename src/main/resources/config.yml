@@ -1,0 +1,82 @@
+# ExcellentEconomyVelocity ${version}
+# This is a Velocity-only compatibility plugin. It never patches or loads
+# classes from ExcellentEconomy itself.
+
+node-id: "velocity-1"
+default-currency: "money"
+
+database:
+  jdbc-url: "jdbc:mysql://127.0.0.1:3306/minecraft?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+  username: "root"
+  password: "change-me"
+  users-table: "excellenteconomy_users"
+  pool-size: 6
+  connection-timeout-ms: 5000
+
+redis:
+  enabled: true
+  uri: "redis://127.0.0.1:6379/0"
+  key-prefix: "eev"
+  # When true, /pay is rejected while Redis is unavailable. MySQL is still
+  # the authority; this option is useful for multi-proxy networks.
+  require-for-payments: false
+  presence-ttl-seconds: 30
+
+commands:
+  register-pay-alias: true
+  register-payments-alias: true
+  register-payoffline-alias: true
+
+payoffline:
+  batch-size: 500
+  confirmation-seconds: 60
+  # SAFE_DEFER_ONLINE avoids overwriting an online player's unsaved backend
+  # cache. IMMEDIATE_ALL pays everyone now but is unsafe with an unmodified
+  # ExcellentEconomy backend.
+  online-mode: "SAFE_DEFER_ONLINE"
+  deferred-delay-seconds: 3
+
+currencies:
+  money:
+    column: "money"
+    decimal: true
+    scale: 2
+    minimum-payment: "0.01"
+    maximum-balance: "-1"
+    aliases: ["money"]
+  coins:
+    column: "coins"
+    decimal: false
+    scale: 0
+    minimum-payment: "1"
+    maximum-balance: "-1"
+    aliases: ["coins"]
+
+messages:
+  prefix: "<dark_gray>[<gold>EEV</gold>]</dark_gray> "
+  no-permission: "<red>你没有权限执行此命令。"
+  player-only: "<red>该命令只能由玩家执行。"
+  invalid-player: "<red>找不到玩家 <yellow>{player}</yellow>。"
+  invalid-currency: "<red>未知货币 <yellow>{currency}</yellow>。"
+  invalid-amount: "<red>金额无效。"
+  busy: "<yellow>正在处理，请稍候……"
+  database-error: "<red>数据库操作失败，请联系管理员。"
+  redis-required: "<red>Redis 当前不可用，已安全拒绝支付。"
+  pay-success: "<green>已向 <yellow>{player}</yellow> 支付 <gold>{amount} {currency}</gold>。新余额：<gold>{balance}</gold>。<gray>#{transaction}</gray>"
+  pay-received: "<green>你收到 <yellow>{player}</yellow> 支付的 <gold>{amount} {currency}</gold>。新余额：<gold>{balance}</gold>。"
+  pay-insufficient: "<red>余额不足。当前余额：<gold>{balance}</gold>。"
+  pay-disabled: "<red><yellow>{player}</yellow> 已关闭该货币的收款。"
+  pay-self: "<red>不能给自己转账。"
+  pay-too-small: "<red>最低转账金额为 <gold>{amount}</gold>。"
+  pay-target-limit: "<red>对方余额将超过该货币上限。"
+  payments-state: "<green>{currency} 收款状态：<yellow>{state}</yellow>。"
+  payments-changed: "<green>已将 {currency} 收款状态设为 <yellow>{state}</yellow>。后端缓存将在原插件下次同步时更新。"
+  balance: "<yellow>{player}</yellow> 的 {currency} 余额：<gold>{balance}</gold>。"
+  sync-done: "<green>已触发 {count} 条数据库同步标记；实际后端刷新速度由 NightCore 决定。"
+  sync-unavailable: "<red>ExcellentEconomy 同步列不存在；请在后端启用 MySQL Sync_Interval。"
+  status: "<gray>MySQL: {mysql} | Redis: {redis} | 节点: {node}</gray>"
+  payoffline-preview: "<yellow>将向 {total} 名已有玩家发放 {amount} {currency}；其中 {online} 名在线玩家将延后到退出后安全发放。确认码：<gold>{token}</gold>。"
+  payoffline-started: "<green>批量发放任务已启动：<gray>{campaign}</gray>。"
+  payoffline-complete: "<green>批量发放完成：立即 {paid}，延后 {deferred}，封顶 {capped}，失败 {failed}。任务：<gray>{campaign}</gray>"
+  payoffline-queued: "<yellow>全服发放的 {amount} {currency} 已排队，将在你离开服务器并完成原插件保存后到账。"
+  offline-notification: "<green>离线期间收到 {amount} {currency}。来源：{source}。"
