@@ -4,46 +4,13 @@ plugins {
 }
 
 group = "dev.nulli0n.excellenteconomyvelocity"
-val resolvedPluginVersion = providers.gradleProperty("pluginVersion").orElse("1.0.0").get()
-version = resolvedPluginVersion
-
-val generatedVersionDirectory = layout.buildDirectory.dir("generated/sources/pluginVersion/java")
-
-val generatePluginVersion = tasks.register("generatePluginVersion") {
-    inputs.property("pluginVersion", resolvedPluginVersion)
-    outputs.dir(generatedVersionDirectory)
-
-    doLast {
-        val output = generatedVersionDirectory.get()
-            .file("dev/nulli0n/eev/BuildVersion.java")
-            .asFile
-        output.parentFile.mkdirs()
-        output.writeText(
-            """
-            package dev.nulli0n.eev;
-
-            public final class BuildVersion {
-                public static final String VALUE = "$resolvedPluginVersion";
-
-                private BuildVersion() {
-                }
-            }
-            """.trimIndent() + "\n"
-        )
-    }
-}
+version = "1.0.0"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
     withSourcesJar()
-}
-
-sourceSets {
-    main {
-        java.srcDir(generatedVersionDirectory)
-    }
 }
 
 repositories {
@@ -53,8 +20,8 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.velocitypowered:velocity-api:3.4.0")
-    annotationProcessor("com.velocitypowered:velocity-api:3.4.0")
+    compileOnly("com.velocitypowered:velocity-api:4.0.0")
+    annotationProcessor("com.velocitypowered:velocity-api:4.0.0")
 
     implementation("com.zaxxer:HikariCP:7.1.0")
     implementation("com.mysql:mysql-connector-j:9.7.0")
@@ -70,7 +37,6 @@ dependencies {
 
 tasks {
     compileJava {
-        dependsOn(generatePluginVersion)
         options.encoding = "UTF-8"
         options.compilerArgs.add("-parameters")
     }
