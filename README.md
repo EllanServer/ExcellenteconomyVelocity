@@ -1,29 +1,30 @@
 # ExcellentEconomyVelocity
 
-一个不修改后端 ExcellentEconomy、只安装在 Velocity 上的群组服经济扩展。
+A plugin that enables cross-server payments for ExcellentEconomy under a Velocity proxy, with support for MySQL, Redis, Pub/Sub, async command suggestions, and offline payouts.
 
-## 功能
+## Features
 
-- 跨服 `/pay`：MySQL 事务、双账户行锁、余额与收款开关校验、Redis 即时通知。
-- `/payments`：读取或修改 ExcellentEconomy 原生 `settings` JSON。
-- `/eesync`：更新 NightCore 的同步标记，支持玩家或全表。
-- `/payoffline`：向数据库内所有已有玩家发钱，带预览确认码、分批处理、余额封顶、审计记录和离线通知。
-- 在线安全模式：全服发放时在线玩家延后到退出且后端保存完成后入账，避免覆盖其内存余额。
-- 多代理在线状态、Pub/Sub 通知、Redis 断线重连；可配置支付在 Redis 故障时 fail closed。
-- 玩家名、货币、状态和常用金额的异步命令补全。
-- `/eev status`、`/eev balance`、交易流水和批次进度表。
+- Cross-server `/pay`: MySQL transactions, two-account row locks, balance and receive-toggle checks, and instant Redis notifications.
+- `/payments`: Read or modify ExcellentEconomy's native `settings` JSON.
+- `/eesync`: Update NightCore sync flags for a single player or the entire table.
+- `/payoffline`: Distribute money to all existing players in the database, with preview confirmation code, batch processing, balance caps, audit records, and offline notifications.
+- Online-safe mode: during global payouts, online players are deferred until they disconnect and backend save is completed, avoiding overwrite of in-memory balances.
+- Multi-proxy online state, Pub/Sub notifications, Redis reconnect; payments can be configured to fail closed on Redis outage.
+- Async command suggestions for player names, currencies, status, and common amounts.
+- `/eev status`, `/eev balance`, transaction logs, and batch progress table.
 
-## 兼容边界
+## Limitation (Cannot Be Solved in This Plugin Alone)
 
-本项目不会修改 ExcellentEconomy，也不会向 Paper 后端安装桥接插件。MySQL 写入会立即完成，Redis 能让多个 Velocity 节点立刻获知在线状态与通知；但原版 ExcellentEconomy **不订阅 Redis**，所以后端内存余额只能由 NightCore 自己轮询数据库刷新。若玩家在后端产生了尚未保存的余额变更，后续保存仍可能覆盖代理刚写入的值。纯 Velocity 插件无法消除这个竞态。
+This project is fully compatible with ExcellentEconomy (currently verified with 2.8.0; future or older versions may be incompatible). MySQL writes complete immediately, and Redis lets multiple Velocity nodes instantly know online status and notifications. However, vanilla ExcellentEconomy **does not subscribe to Redis**, so backend in-memory balances can only be refreshed when NightCore polls the database. If a player has unsaved backend-side balance changes, a later save may still overwrite the value just written by the proxy. A pure Velocity plugin cannot eliminate this race condition.
+(I hope the author updates the plugin; I may open a pull request so future versions can support this.)
 
-因此生产环境必须在每个 ExcellentEconomy 货币文件中设置：
+Therefore, in production you must set the following in every ExcellentEconomy currency file:
 
 ```yaml
 Synchronized: true
 ```
 
-并在 `plugins/ExcellentEconomy/engine.yml` 中启用共享 MySQL，例如：
+And enable shared MySQL in `plugins/ExcellentEconomy/engine.yml`, for example:
 
 ```yaml
 Database:
@@ -32,46 +33,18 @@ Database:
   Table_Prefix: excellenteconomy
 ```
 
-这能把通常的可见延迟压到约一秒，但“真正接近零延迟地修改后端内存”必须由 ExcellentEconomy/NightCore 提供消息接口，或另装后端桥接；在“不修改原插件且只做 Velocity 插件”的限制下无法诚实保证。
+This usually reduces visible delay to about one second, but truly near-zero-latency backend in-memory updates require a messaging interface provided by ExcellentEconomy/NightCore, or an additional backend bridge. Under the constraint of "no changes to original plugins, Velocity-only plugin," this cannot be honestly guaranteed.
 
-## 命令
+## Commands
 
-| 命令 | 权限 |
+| Command | Permission |
 |---|---|
-| `/eev pay <玩家> <金额> [货币]`、`/pay` | `excellenteconomyvelocity.pay` |
-| `/eev payments [货币] [on\|off\|toggle\|status]`、`/payments` | `excellenteconomyvelocity.payments` |
-| `/eev balance [玩家] [货币]` | 自己：`excellenteconomyvelocity.balance`；他人：`excellenteconomyvelocity.balance.others` |
-| `/eev sync <玩家\|all>`、`/eesync` | `excellenteconomyvelocity.admin.sync` |
-| `/eev payoffline <金额> [货币]`、`/payoffline` | `excellenteconomyvelocity.admin.payoffline` |
+| `/eev pay <player> <amount> [currency]`, `/pay` | `excellenteconomyvelocity.pay` |
+| `/eev payments [currency] [on\|off\|toggle\|status]`, `/payments` | `excellenteconomyvelocity.payments` |
+| `/eev balance [player] [currency]` | Self: `excellenteconomyvelocity.balance`; Others: `excellenteconomyvelocity.balance.others` |
+| `/eev sync <player\|all>`, `/eesync` | `excellenteconomyvelocity.admin.sync` |
+| `/eev payoffline <amount> [currency]`, `/payoffline` | `excellenteconomyvelocity.admin.payoffline` |
 | `/eev status` | `excellenteconomyvelocity.admin.status` |
 
-`payoffline` 第一次执行只显示人数和一次性确认码；再次附加 `--confirm <确认码>` 才会真正执行。默认 `SAFE_DEFER_ONLINE`：离线记录立即更新，在线记录在玩家退出并等待后端保存后更新。
+`payoffline` only shows target count and a one-time confirmation code on first run; it executes only when run again with `--confirm <code>`. Default is `SAFE_DEFER_ONLINE`: offline records update immediately, and online records update after the player disconnects and backend save is completed.
 
-## 安装
-
-构建要求 Java 21；运行时需要与所使用的 Velocity 版本兼容的 Java。ExcellentEconomy 2.8、NightCore 2.16，以及 ExcellentEconomy 正在使用的 MySQL/MariaDB 是必需依赖。多代理和即时通知建议 Redis 6+。
-
-1. 构建：`./gradlew clean test shadowJar`（Windows 使用 `gradlew.bat`）。
-2. 把 `build/libs/ExcellentEconomyVelocity-1.0.0.jar` 放入 Velocity 的 `plugins`。
-3. 首次启动后编辑 `plugins/excellenteconomyvelocity/config.yml`。
-4. `users-table` 默认是 ExcellentEconomy 默认表 `excellenteconomy_users`；如果改过 `Table_Prefix`，这里也要对应修改。
-5. `currencies.<id>.column` 必须与对应货币文件的 `Column_Name` 完全一致。
-
-插件只会额外创建 `eev_transactions`、`eev_notifications`、`eev_campaigns` 和 `eev_pending_grants`，不会修改 ExcellentEconomy 代码或 JAR。
-
-## GitHub 大版本发布
-
-仓库包含 GitHub Actions 自动发布工作流。它只会在推送形如 `vX.0.0` 的大版本标签时运行，例如 `v2.0.0`；普通提交、分支推送、`v1.1.0` 和 `v1.0.1` 都不会触发。
-
-在确认 `main` 已包含要发布的内容后执行：
-
-```bash
-git tag v2.0.0
-git push origin v2.0.0
-```
-
-工作流会使用 Java 21 执行测试和 `shadowJar`，以 `2.0.0` 作为插件及 JAR 版本，上传构建产物，并自动创建同名 GitHub Release 与 Release Notes。
-
-## 验证
-
-单元测试覆盖金额解析、货币规格化与 settings JSON；设置 `EEV_TEST_DB_URL` 和 `EEV_TEST_REDIS_URI` 后还会运行真实 MariaDB/Redis 集成测试，覆盖原子支付、收款开关、同步标记、跨节点事件、在线状态及 `payoffline` 恰好一次入账。
