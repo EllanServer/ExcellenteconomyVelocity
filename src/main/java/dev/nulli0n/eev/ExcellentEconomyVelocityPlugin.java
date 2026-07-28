@@ -38,7 +38,7 @@ import java.util.concurrent.Executors;
 @Plugin(
     id = "excellenteconomyvelocity",
     name = "ExcellentEconomyVelocity",
-    version = BuildVersion.VALUE,
+    version = "1.0.0",
     description = "Velocity-only network companion for ExcellentEconomy",
     authors = {"OpenAI Codex"}
 )

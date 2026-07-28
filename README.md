@@ -48,3 +48,18 @@ This usually reduces visible delay to about one second, but truly near-zero-late
 
 `payoffline` only shows target count and a one-time confirmation code on first run; it executes only when run again with `--confirm <code>`. Default is `SAFE_DEFER_ONLINE`: offline records update immediately, and online records update after the player disconnects and backend save is completed.
 
+## 安装
+
+要求 Java 25、Velocity 4、ExcellentEconomy 2.8、NightCore 2.16，以及 ExcellentEconomy 正在使用的 MySQL/MariaDB。多代理和即时通知建议 Redis 6+。
+
+1. 构建：`./gradlew clean test shadowJar`（Windows 使用 `gradlew.bat`）。
+2. 把 `build/libs/ExcellentEconomyVelocity-1.0.0.jar` 放入 Velocity 的 `plugins`。
+3. 首次启动后编辑 `plugins/excellenteconomyvelocity/config.yml`。
+4. `users-table` 默认是 ExcellentEconomy 默认表 `excellenteconomy_users`；如果改过 `Table_Prefix`，这里也要对应修改。
+5. `currencies.<id>.column` 必须与对应货币文件的 `Column_Name` 完全一致。
+
+插件只会额外创建 `eev_transactions`、`eev_notifications`、`eev_campaigns` 和 `eev_pending_grants`，不会修改 ExcellentEconomy 代码或 JAR。
+
+## 验证
+
+单元测试覆盖金额解析、货币规格化与 settings JSON；设置 `EEV_TEST_DB_URL` 和 `EEV_TEST_REDIS_URI` 后还会运行真实 MariaDB/Redis 集成测试，覆盖原子支付、收款开关、同步标记、跨节点事件、在线状态及 `payoffline` 恰好一次入账。
