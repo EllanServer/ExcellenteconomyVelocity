@@ -3,6 +3,8 @@ package dev.nulli0n.eev.data;
 import dev.nulli0n.eev.config.CurrencyDefinition;
 import dev.nulli0n.eev.config.PluginConfig;
 import dev.nulli0n.eev.data.Models.CampaignResult;
+import dev.nulli0n.eev.data.Models.AdjustmentType;
+import dev.nulli0n.eev.data.Models.GrantResult;
 import dev.nulli0n.eev.data.Models.PaymentStatus;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -70,7 +72,7 @@ class DatabaseIntegrationTest {
         }
 
         money = new CurrencyDefinition("money", "money", true, 2, new BigDecimal("0.01"),
-            new BigDecimal("1000"), List.of("money"));
+            new BigDecimal("1000"), true, true, "excellenteconomyvelocity.currency.money", List.of("money"));
         PluginConfig config = config(url, user, password);
         database = new Database(config);
         database.initialize();
@@ -117,6 +119,41 @@ class DatabaseIntegrationTest {
 
     @Test
     @Order(3)
+    void payAllOnlyGrantsExistingOnlineProfiles() throws Exception {
+        UUID missing = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        BigDecimal aliceBefore = database.balance(ALICE, money).orElseThrow().amount();
+        BigDecimal bobBefore = database.balance(BOB, money).orElseThrow().amount();
+
+        GrantResult result = database.grantPlayers(UUID.randomUUID(), null, "JUnit",
+            Set.of(ALICE, BOB, missing), money, new BigDecimal("5.50"));
+
+        assertThat(result.paid()).isEqualTo(2);
+        assertThat(result.missing()).isEqualTo(1);
+        assertThat(result.balances()).containsOnlyKeys(ALICE, BOB);
+        assertThat(database.balance(ALICE, money).orElseThrow().amount())
+            .isEqualByComparingTo(aliceBefore.add(new BigDecimal("5.50")));
+        assertThat(database.balance(BOB, money).orElseThrow().amount())
+            .isEqualByComparingTo(bobBefore.add(new BigDecimal("5.50")));
+    }
+
+    @Test
+    @Order(4)
+    void administrativeAdjustmentsAreAtomicAndAudited() throws Exception {
+        var given = database.adjustBalance(null, "JUnit", CAROL, money, new BigDecimal("8.25"),
+            AdjustmentType.GIVE).orElseThrow();
+        assertThat(given.balance()).isEqualByComparingTo("23.25");
+
+        var set = database.adjustBalance(null, "JUnit", CAROL, money, new BigDecimal("3.50"),
+            AdjustmentType.SET).orElseThrow();
+        assertThat(set.balance()).isEqualByComparingTo("3.50");
+
+        var taken = database.adjustBalance(null, "JUnit", CAROL, money, BigDecimal.TEN,
+            AdjustmentType.TAKE).orElseThrow();
+        assertThat(taken.balance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @Order(5)
     void syncTriggerAndProfileCacheWork() throws Exception {
         assertThat(database.cachedProfileNames()).contains("Alice", "Bob", "Carol");
         assertThat(database.triggerSync(Optional.of(CAROL), "velocity-test")).isEqualTo(1);
@@ -129,10 +166,16 @@ class DatabaseIntegrationTest {
             "money",
             new PluginConfig.DatabaseConfig(url, user, password, "excellenteconomy_users", 4, 5_000),
             new PluginConfig.RedisConfig(false, "redis://127.0.0.1:36379/0", "eev-test", false, 30),
-            new PluginConfig.CommandConfig(false, false, false),
+            permissions(),
+            new PluginConfig.CommandConfig(false, false, false, false, false),
             new PluginConfig.PayOfflineConfig(2, 60, PluginConfig.OnlineMode.SAFE_DEFER_ONLINE, 1),
             Map.of("money", money),
             Map.of()
         );
+    }
+
+    private static PluginConfig.PermissionConfig permissions() {
+        return new PluginConfig.PermissionConfig("pay", "payments", "balance", "balance.others", "give",
+            "giveall", "set", "take", "payall", "payoffline", "sync", "status", "reload");
     }
 }

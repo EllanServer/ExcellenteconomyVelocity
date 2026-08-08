@@ -4,11 +4,11 @@ plugins {
 }
 
 group = "dev.nulli0n.excellenteconomyvelocity"
-version = "1.0.0"
+version = providers.gradleProperty("pluginVersion").orElse("1.0.2").get()
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+        languageVersion = JavaLanguageVersion.of(21)
     }
     withSourcesJar()
 }
@@ -20,8 +20,8 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.velocitypowered:velocity-api:4.0.0")
-    annotationProcessor("com.velocitypowered:velocity-api:4.0.0")
+    compileOnly("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
+    annotationProcessor("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
 
     implementation("com.zaxxer:HikariCP:7.1.0")
     implementation("com.mysql:mysql-connector-j:9.7.0")

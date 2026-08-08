@@ -22,10 +22,31 @@ redis:
   require-for-payments: false
   presence-ttl-seconds: 30
 
+# Permission categories follow ExcellentEconomy's command.currency.* layout,
+# while keeping this Velocity companion in its own namespace.
+permissions:
+  pay: "excellenteconomyvelocity.command.currency.send"
+  payments: "excellenteconomyvelocity.command.currency.payments"
+  balance: "excellenteconomyvelocity.command.currency.balance"
+  balance-others: "excellenteconomyvelocity.command.currency.balance.others"
+  give: "excellenteconomyvelocity.command.currency.add"
+  giveall: "excellenteconomyvelocity.command.currency.addall"
+  set: "excellenteconomyvelocity.command.currency.set"
+  take: "excellenteconomyvelocity.command.currency.take"
+  payall: "excellenteconomyvelocity.command.currency.payall"
+  payoffline: "excellenteconomyvelocity.command.currency.payoffline"
+  sync: "excellenteconomyvelocity.command.sync"
+  status: "excellenteconomyvelocity.command.status"
+  reload: "excellenteconomyvelocity.command.reload"
+
 commands:
   register-pay-alias: true
   register-payments-alias: true
+  register-payall-alias: true
   register-payoffline-alias: true
+  # Register each currency id/alias as a Velocity command, for example:
+  # /money pay <player> <amount>
+  register-currency-commands: true
 
 payoffline:
   batch-size: 500
@@ -43,6 +64,9 @@ currencies:
     scale: 2
     minimum-payment: "0.01"
     maximum-balance: "-1"
+    player-trading: true
+    permission-required: true
+    permission: "excellenteconomyvelocity.currency.money"
     aliases: ["money"]
   coins:
     column: "coins"
@@ -50,6 +74,9 @@ currencies:
     scale: 0
     minimum-payment: "1"
     maximum-balance: "-1"
+    player-trading: false
+    permission-required: true
+    permission: "excellenteconomyvelocity.currency.coins"
     aliases: ["coins"]
 
 messages:
@@ -62,6 +89,8 @@ messages:
   busy: "<yellow>正在处理，请稍候……"
   database-error: "<red>数据库操作失败，请联系管理员。"
   redis-required: "<red>Redis 当前不可用，已安全拒绝支付。"
+  currency-trade-disabled: "<red><yellow>{currency}</yellow> 不允许玩家之间交易。"
+  currency-pay-no-permission: "<red>你没有使用货币 <yellow>{currency}</yellow> 的权限。"
   pay-success: "<green>已向 <yellow>{player}</yellow> 支付 <gold>{amount} {currency}</gold>。新余额：<gold>{balance}</gold>。<gray>#{transaction}</gray>"
   pay-received: "<green>你收到 <yellow>{player}</yellow> 支付的 <gold>{amount} {currency}</gold>。新余额：<gold>{balance}</gold>。"
   pay-insufficient: "<red>余额不足。当前余额：<gold>{balance}</gold>。"
@@ -69,6 +98,12 @@ messages:
   pay-self: "<red>不能给自己转账。"
   pay-too-small: "<red>最低转账金额为 <gold>{amount}</gold>。"
   pay-target-limit: "<red>对方余额将超过该货币上限。"
+  payall-empty: "<yellow>当前代理网络没有可发放的在线玩家。"
+  payall-complete: "<green>在线发放完成：成功 {paid}，封顶 {capped}，未建档 {missing}。流水：<gray>#{transaction}</gray>"
+  payall-received: "<green>你收到管理员发放的 <gold>{amount} {currency}</gold>。新余额：<gold>{balance}</gold>。"
+  admin-operation-success: "<green>已对 <yellow>{player}</yellow> 的 {currency} 执行 {operation} {amount}；新余额：<gold>{balance}</gold>。流水：<gray>#{transaction}</gray>"
+  admin-operation-received: "<yellow>管理员对你的 {currency} 执行了 {operation} {amount}；新余额：<gold>{balance}</gold>。"
+  offline-admin-operation: "<yellow>离线期间管理员对你的 {currency} 执行了 {operation} {amount}。"
   payments-state: "<green>{currency} 收款状态：<yellow>{state}</yellow>。"
   payments-changed: "<green>已将 {currency} 收款状态设为 <yellow>{state}</yellow>。后端缓存将在原插件下次同步时更新。"
   balance: "<yellow>{player}</yellow> 的 {currency} 余额：<gold>{balance}</gold>。"
@@ -80,3 +115,5 @@ messages:
   payoffline-complete: "<green>批量发放完成：立即 {paid}，延后 {deferred}，封顶 {capped}，失败 {failed}。任务：<gray>{campaign}</gray>"
   payoffline-queued: "<yellow>全服发放的 {amount} {currency} 已排队，将在你离开服务器并完成原插件保存后到账。"
   offline-notification: "<green>离线期间收到 {amount} {currency}。来源：{source}。"
+  reload-success: "<green>配置、数据库、Redis 与命令已重新加载。"
+  reload-failed: "<red>重新加载失败，旧配置仍在运行；请查看代理控制台。"

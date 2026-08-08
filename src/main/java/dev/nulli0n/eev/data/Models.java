@@ -2,6 +2,7 @@ package dev.nulli0n.eev.data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 public final class Models {
@@ -42,6 +43,16 @@ public final class Models {
     public record PaymentsResult(PlayerProfile player, boolean enabled) {
     }
 
+    public enum AdjustmentType {
+        GIVE,
+        SET,
+        TAKE
+    }
+
+    public record AdjustmentResult(UUID transactionId, PlayerProfile target, AdjustmentType type,
+                                   BigDecimal amount, BigDecimal balance) {
+    }
+
     public record Notification(long id, UUID playerUuid, String kind, String currency,
                                BigDecimal amount, String source, Instant createdAt) {
     }
@@ -50,6 +61,13 @@ public final class Models {
     }
 
     public record CampaignResult(UUID campaignId, long paid, long deferred, long capped, long failed) {
+    }
+
+    public record GrantResult(UUID transactionId, Map<UUID, BigDecimal> balances,
+                              long paid, long capped, long missing) {
+        public GrantResult {
+            balances = Map.copyOf(balances);
+        }
     }
 
     public record CampaignProgress(UUID campaignId, String status, long paid, long deferred,

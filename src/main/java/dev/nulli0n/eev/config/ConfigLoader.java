@@ -39,6 +39,13 @@ public final class ConfigLoader {
         try (InputStream stream = Files.newInputStream(target)) {
             root = castMap(yaml.load(stream), "root");
         }
+        Map<String, Object> defaults;
+        try (InputStream stream = ConfigLoader.class.getClassLoader().getResourceAsStream("config.yml")) {
+            if (stream == null) {
+                throw new IOException("Bundled config.yml is missing");
+            }
+            defaults = castMap(yaml.load(stream), "bundled root");
+        }
 
         String nodeId = text(root, "node-id", "velocity-1");
         String defaultCurrency = text(root, "default-currency", "money").toLowerCase(Locale.ROOT);
@@ -62,11 +69,31 @@ public final class ConfigLoader {
             integer(redis, "presence-ttl-seconds", 30, 5, 600)
         );
 
+        Map<String, Object> permissions = section(root, "permissions");
+        PluginConfig.PermissionConfig permissionConfig = new PluginConfig.PermissionConfig(
+            permission(text(permissions, "pay", "excellenteconomyvelocity.command.currency.send")),
+            permission(text(permissions, "payments", "excellenteconomyvelocity.command.currency.payments")),
+            permission(text(permissions, "balance", "excellenteconomyvelocity.command.currency.balance")),
+            permission(text(permissions, "balance-others",
+                "excellenteconomyvelocity.command.currency.balance.others")),
+            permission(text(permissions, "give", "excellenteconomyvelocity.command.currency.add")),
+            permission(text(permissions, "giveall", "excellenteconomyvelocity.command.currency.addall")),
+            permission(text(permissions, "set", "excellenteconomyvelocity.command.currency.set")),
+            permission(text(permissions, "take", "excellenteconomyvelocity.command.currency.take")),
+            permission(text(permissions, "payall", "excellenteconomyvelocity.command.currency.payall")),
+            permission(text(permissions, "payoffline", "excellenteconomyvelocity.command.currency.payoffline")),
+            permission(text(permissions, "sync", "excellenteconomyvelocity.command.sync")),
+            permission(text(permissions, "status", "excellenteconomyvelocity.command.status")),
+            permission(text(permissions, "reload", "excellenteconomyvelocity.command.reload"))
+        );
+
         Map<String, Object> commands = section(root, "commands");
         PluginConfig.CommandConfig commandConfig = new PluginConfig.CommandConfig(
             bool(commands, "register-pay-alias", true),
             bool(commands, "register-payments-alias", true),
-            bool(commands, "register-payoffline-alias", true)
+            bool(commands, "register-payall-alias", true),
+            bool(commands, "register-payoffline-alias", true),
+            bool(commands, "register-currency-commands", true)
         );
 
         Map<String, Object> payOffline = section(root, "payoffline");
@@ -90,6 +117,10 @@ public final class ConfigLoader {
                 integer(value, "scale", 2, 0, 8),
                 decimal(value, "minimum-payment", BigDecimal.ONE),
                 decimal(value, "maximum-balance", BigDecimal.valueOf(-1)),
+                bool(value, "player-trading", true),
+                bool(value, "permission-required", value.containsKey("pay-permission")),
+                permission(text(value, "permission",
+                    text(value, "pay-permission", "excellenteconomyvelocity.currency." + id))),
                 aliases
             ));
         }
@@ -98,9 +129,10 @@ public final class ConfigLoader {
         }
 
         Map<String, String> messages = new LinkedHashMap<>();
+        section(defaults, "messages").forEach((key, value) -> messages.put(key, String.valueOf(value)));
         section(root, "messages").forEach((key, value) -> messages.put(key, String.valueOf(value)));
 
-        return new PluginConfig(nodeId, defaultCurrency, databaseConfig, redisConfig, commandConfig,
+        return new PluginConfig(nodeId, defaultCurrency, databaseConfig, redisConfig, permissionConfig, commandConfig,
             payOfflineConfig, currencies, messages);
     }
 
@@ -176,5 +208,13 @@ public final class ConfigLoader {
             throw new IllegalArgumentException("Unsafe Redis key prefix: " + value);
         }
         return value;
+    }
+
+    private static String permission(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (!normalized.matches("[a-z0-9._-]+")) {
+            throw new IllegalArgumentException("Unsafe permission: " + value);
+        }
+        return normalized;
     }
 }

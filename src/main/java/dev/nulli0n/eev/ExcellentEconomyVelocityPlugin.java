@@ -26,6 +26,8 @@ import org.slf4j.Logger;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,7 @@ import java.util.concurrent.Executors;
 @Plugin(
     id = "excellenteconomyvelocity",
     name = "ExcellentEconomyVelocity",
-    version = "1.0.0",
+    version = "1.0.2",
     description = "Velocity-only network companion for ExcellentEconomy",
     authors = {"OpenAI Codex"}
 )
@@ -49,6 +51,8 @@ public final class ExcellentEconomyVelocityPlugin {
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Map<String, ScheduledTask> tasks = new HashMap<>();
+    private final List<CommandMeta> registeredCommands = new ArrayList<>();
+    private final Set<String> registeredCommandLabels = new HashSet<>();
 
     private volatile PluginConfig config;
     private volatile Messages messages;
@@ -100,7 +104,7 @@ public final class ExcellentEconomyVelocityPlugin {
         tasks.put("heartbeat", heartbeat);
     }
 
-    private void registerCommands() {
+    private synchronized void registerCommands() {
         CommandManager manager = proxy.getCommandManager();
         register(manager, "eev", EconomyCommand.Mode.ROOT, "excellenteconomyvelocity");
         if (config.commands().registerPayAlias()) {
@@ -115,6 +119,12 @@ public final class ExcellentEconomyVelocityPlugin {
         else {
             register(manager, "eepayments", EconomyCommand.Mode.PAYMENTS);
         }
+        if (config.commands().registerPayAllAlias()) {
+            register(manager, "payall", EconomyCommand.Mode.PAYALL, "eepayall");
+        }
+        else {
+            register(manager, "eepayall", EconomyCommand.Mode.PAYALL);
+        }
         if (config.commands().registerPayOfflineAlias()) {
             register(manager, "payoffline", EconomyCommand.Mode.PAYOFFLINE, "eepayoffline");
         }
@@ -122,15 +132,50 @@ public final class ExcellentEconomyVelocityPlugin {
             register(manager, "eepayoffline", EconomyCommand.Mode.PAYOFFLINE);
         }
         register(manager, "eesync", EconomyCommand.Mode.SYNC);
+        register(manager, "eevreload", EconomyCommand.Mode.RELOAD);
+
+        if (config.commands().registerCurrencyCommands()) {
+            config.currencies().values().forEach(currency -> {
+                if (registeredCommandLabels.contains(currency.id())) {
+                    logger.warn("Skipped currency command /{} because that label is already registered by EEV",
+                        currency.id());
+                    return;
+                }
+                String[] aliases = currency.aliases().stream()
+                    .filter(alias -> !registeredCommandLabels.contains(alias))
+                    .toArray(String[]::new);
+                register(manager, currency.id(), EconomyCommand.Mode.CURRENCY, currency, aliases);
+            });
+        }
     }
 
     private void register(CommandManager manager, String name, EconomyCommand.Mode mode, String... aliases) {
+        register(manager, name, mode, null, aliases);
+    }
+
+    private void register(CommandManager manager, String name, EconomyCommand.Mode mode,
+                          dev.nulli0n.eev.config.CurrencyDefinition currency, String... aliases) {
         CommandMeta meta = manager.metaBuilder(name).aliases(aliases).plugin(this).build();
-        manager.register(meta, new EconomyCommand(this, mode));
+        manager.register(meta, new EconomyCommand(this, mode, currency));
+        registeredCommands.add(meta);
+        registeredCommandLabels.add(name.toLowerCase(java.util.Locale.ROOT));
+        for (String alias : aliases) {
+            registeredCommandLabels.add(alias.toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    private synchronized void unregisterCommands() {
+        CommandManager manager = proxy.getCommandManager();
+        registeredCommands.forEach(manager::unregister);
+        registeredCommands.clear();
+        registeredCommandLabels.clear();
     }
 
     @Subscribe
     public void onLogin(PostLoginEvent event) {
+        if (config == null || ready.isCompletedExceptionally()) {
+            return;
+        }
         Player player = event.getPlayer();
         ready.thenRunAsync(() -> {
             heartbeat();
@@ -140,6 +185,10 @@ public final class ExcellentEconomyVelocityPlugin {
 
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
+        PluginConfig currentConfig = config;
+        if (currentConfig == null || ready.isCompletedExceptionally()) {
+            return;
+        }
         Player player = event.getPlayer();
         ready.thenRunAsync(() -> {
             if (redis != null) {
@@ -148,7 +197,7 @@ public final class ExcellentEconomyVelocityPlugin {
         }, executor);
         proxy.getScheduler().buildTask(this, () -> ready.thenRunAsync(() -> {
                 try {
-                    int applied = database.applyPendingGrants(player.getUniqueId(), config.currencies());
+                    int applied = database.applyPendingGrants(player.getUniqueId(), currentConfig.currencies());
                     if (applied > 0) {
                         logger.info("Applied {} deferred payoffline grant(s) for {}", applied, player.getUsername());
                     }
@@ -157,7 +206,7 @@ public final class ExcellentEconomyVelocityPlugin {
                     logger.error("Could not apply deferred grants for " + player.getUsername(), exception);
                 }
             }, executor))
-            .delay(Duration.ofSeconds(config.payOffline().deferredDelaySeconds()))
+            .delay(Duration.ofSeconds(currentConfig.payOffline().deferredDelaySeconds()))
             .schedule();
     }
 
@@ -176,11 +225,20 @@ public final class ExcellentEconomyVelocityPlugin {
                 return;
             }
             for (Notification notification : pending) {
-                player.sendMessage(messages.get("offline-notification", Map.of(
-                    "amount", display(notification.amount()),
-                    "currency", notification.currency(),
-                    "source", notification.source()
-                )));
+                if (Set.of("GIVE", "SET", "TAKE").contains(notification.kind())) {
+                    player.sendMessage(messages.get("offline-admin-operation", Map.of(
+                        "amount", display(notification.amount()),
+                        "currency", notification.currency(),
+                        "operation", operationLabel(notification.kind())
+                    )));
+                }
+                else {
+                    player.sendMessage(messages.get("offline-notification", Map.of(
+                        "amount", display(notification.amount()),
+                        "currency", notification.currency(),
+                        "source", notification.source()
+                    )));
+                }
             }
             database.markNotificationsDelivered(pending.stream().map(Notification::id).toList());
         }
@@ -209,6 +267,23 @@ public final class ExcellentEconomyVelocityPlugin {
                     }, executor);
                 }
             }
+            else if ("GRANT".equals(event.type())) {
+                player.sendMessage(messages.get("payall-received", Map.of(
+                    "amount", event.amount(),
+                    "currency", event.currency(),
+                    "balance", event.balance()
+                )));
+                markNetworkNotificationDelivered(event);
+            }
+            else if (Set.of("GIVE", "SET", "TAKE").contains(event.type())) {
+                player.sendMessage(messages.get("admin-operation-received", Map.of(
+                    "amount", event.amount(),
+                    "currency", event.currency(),
+                    "operation", operationLabel(event.type()),
+                    "balance", event.balance()
+                )));
+                markNetworkNotificationDelivered(event);
+            }
             else if ("CAMPAIGN_QUEUED".equals(event.type())) {
                 player.sendMessage(messages.get("payoffline-queued", Map.of(
                     "amount", event.amount(),
@@ -218,9 +293,78 @@ public final class ExcellentEconomyVelocityPlugin {
         });
     }
 
+    private void markNetworkNotificationDelivered(NetworkEvent event) {
+        if (event.transactionId() == null) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                database.markNotificationDelivered(event.targetUuid(), event.transactionId());
+            }
+            catch (SQLException exception) {
+                logger.warn("Could not mark network notification delivered: {}", exception.getMessage());
+            }
+        }, executor);
+    }
+
+    public synchronized void reloadConfiguration() throws Exception {
+        PluginConfig candidateConfig = ConfigLoader.load(dataDirectory);
+        Messages candidateMessages = new Messages(candidateConfig);
+        Database candidateDatabase = null;
+        RedisService candidateRedis = null;
+        try {
+            candidateDatabase = new Database(candidateConfig);
+            candidateDatabase.initialize();
+            candidateRedis = new RedisService(candidateConfig, logger);
+            candidateRedis.addListener(this::handleNetworkEvent);
+            candidateRedis.connect();
+        }
+        catch (Exception exception) {
+            closeCandidate(candidateRedis, candidateDatabase);
+            throw exception;
+        }
+
+        PluginConfig oldConfig = config;
+        Messages oldMessages = messages;
+        Database oldDatabase = database;
+        RedisService oldRedis = redis;
+        unregisterCommands();
+        config = candidateConfig;
+        messages = candidateMessages;
+        database = candidateDatabase;
+        redis = candidateRedis;
+        try {
+            registerCommands();
+            heartbeat();
+        }
+        catch (RuntimeException exception) {
+            unregisterCommands();
+            config = oldConfig;
+            messages = oldMessages;
+            database = oldDatabase;
+            redis = oldRedis;
+            registerCommands();
+            closeCandidate(candidateRedis, candidateDatabase);
+            throw exception;
+        }
+
+        closeCandidate(oldRedis, oldDatabase);
+        logger.info("ExcellentEconomyVelocity reloaded as node {}", config.nodeId());
+    }
+
+    private static void closeCandidate(RedisService redis, Database database) {
+        if (redis != null) {
+            redis.close();
+        }
+        if (database != null) {
+            database.close();
+        }
+    }
+
     @Subscribe
     public void onShutdown(ProxyShutdownEvent event) {
         tasks.values().forEach(ScheduledTask::cancel);
+        unregisterCommands();
         closeServices();
         executor.shutdown();
     }
@@ -238,6 +382,15 @@ public final class ExcellentEconomyVelocityPlugin {
 
     private static String display(java.math.BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    private static String operationLabel(String type) {
+        return switch (type) {
+            case "GIVE" -> "增加";
+            case "SET" -> "设置";
+            case "TAKE" -> "扣除";
+            default -> type;
+        };
     }
 
     public ProxyServer proxy() {

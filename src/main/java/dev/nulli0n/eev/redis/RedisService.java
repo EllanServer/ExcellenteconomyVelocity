@@ -193,6 +193,19 @@ public final class RedisService implements AutoCloseable {
             return new NetworkEvent("PAYMENT", node, target, source, currency, amount, balance, transactionId);
         }
 
+        public static NetworkEvent grant(String node, UUID target, String source, String currency,
+                                         String amount, String balance, UUID transactionId) {
+            return new NetworkEvent("GRANT", node, target, source, currency, amount, balance, transactionId);
+        }
+
+        public static NetworkEvent adjustment(String type, String node, UUID target, String source, String currency,
+                                              String amount, String balance, UUID transactionId) {
+            if (!Set.of("GIVE", "SET", "TAKE").contains(type)) {
+                throw new IllegalArgumentException("Unknown adjustment type: " + type);
+            }
+            return new NetworkEvent(type, node, target, source, currency, amount, balance, transactionId);
+        }
+
         public static NetworkEvent campaignQueued(String node, UUID target, String currency, String amount) {
             return new NetworkEvent("CAMPAIGN_QUEUED", node, target, "payoffline", currency, amount, null, null);
         }

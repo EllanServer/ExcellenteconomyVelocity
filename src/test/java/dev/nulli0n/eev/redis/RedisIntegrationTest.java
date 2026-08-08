@@ -48,6 +48,19 @@ class RedisIntegrationTest {
             assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(received.get().type()).isEqualTo("PAYMENT");
             assertThat(received.get().targetUuid()).isEqualTo(player);
+
+            CountDownLatch adjustmentLatch = new CountDownLatch(1);
+            AtomicReference<RedisService.NetworkEvent> adjustment = new AtomicReference<>();
+            second.addListener(event -> {
+                if ("GIVE".equals(event.type())) {
+                    adjustment.set(event);
+                    adjustmentLatch.countDown();
+                }
+            });
+            first.publish(RedisService.NetworkEvent.adjustment("GIVE", "node-a", player, "Console", "money",
+                "3", "28", UUID.randomUUID()));
+            assertThat(adjustmentLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(adjustment.get().balance()).isEqualTo("28");
         }
         finally {
             first.close();
@@ -57,13 +70,16 @@ class RedisIntegrationTest {
 
     private static PluginConfig config(String node, String uri, String prefix) {
         CurrencyDefinition money = new CurrencyDefinition("money", "money", true, 2,
-            new BigDecimal("0.01"), BigDecimal.valueOf(-1), List.of());
+            new BigDecimal("0.01"), BigDecimal.valueOf(-1), true, true,
+            "excellenteconomyvelocity.currency.money", List.of());
         return new PluginConfig(
             node,
             "money",
             new PluginConfig.DatabaseConfig("jdbc:mysql://unused", "", "", "excellenteconomy_users", 2, 1000),
             new PluginConfig.RedisConfig(true, uri, prefix, false, 30),
-            new PluginConfig.CommandConfig(false, false, false),
+            new PluginConfig.PermissionConfig("pay", "payments", "balance", "balance.others", "give",
+                "giveall", "set", "take", "payall", "payoffline", "sync", "status", "reload"),
+            new PluginConfig.CommandConfig(false, false, false, false, false),
             new PluginConfig.PayOfflineConfig(100, 60, PluginConfig.OnlineMode.SAFE_DEFER_ONLINE, 1),
             Map.of("money", money),
             Map.of()

@@ -14,12 +14,18 @@ public record CurrencyDefinition(
     int scale,
     BigDecimal minimumPayment,
     BigDecimal maximumBalance,
+    boolean playerTrading,
+    boolean permissionRequired,
+    String permission,
     List<String> aliases
 ) {
     private static final Pattern SQL_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
+    private static final Pattern COMMAND_ALIAS = Pattern.compile("[a-z0-9_-]+");
+    private static final Pattern PERMISSION = Pattern.compile("[a-z0-9._-]+");
 
     public CurrencyDefinition {
-        id = normalizeId(id);
+        String normalizedId = normalizeId(id);
+        id = normalizedId;
         if (!SQL_IDENTIFIER.matcher(column).matches()) {
             throw new IllegalArgumentException("Unsafe currency column: " + column);
         }
@@ -28,7 +34,15 @@ public record CurrencyDefinition(
         }
         minimumPayment = Objects.requireNonNull(minimumPayment, "minimumPayment");
         maximumBalance = Objects.requireNonNull(maximumBalance, "maximumBalance");
-        aliases = List.copyOf(aliases);
+        permission = Objects.requireNonNull(permission, "permission").toLowerCase(Locale.ROOT);
+        if (!PERMISSION.matcher(permission).matches()) {
+            throw new IllegalArgumentException("Unsafe currency permission: " + permission);
+        }
+        aliases = Objects.requireNonNull(aliases, "aliases").stream()
+            .map(CurrencyDefinition::normalizeAlias)
+            .distinct()
+            .filter(alias -> !alias.equals(normalizedId))
+            .toList();
     }
 
     public BigDecimal normalize(BigDecimal amount) {
@@ -51,6 +65,14 @@ public record CurrencyDefinition(
         String normalized = Objects.requireNonNull(value, "id").toLowerCase(Locale.ROOT);
         if (!SQL_IDENTIFIER.matcher(normalized).matches()) {
             throw new IllegalArgumentException("Unsafe currency id: " + value);
+        }
+        return normalized;
+    }
+
+    private static String normalizeAlias(String value) {
+        String normalized = Objects.requireNonNull(value, "alias").toLowerCase(Locale.ROOT);
+        if (!COMMAND_ALIAS.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("Unsafe currency command alias: " + value);
         }
         return normalized;
     }

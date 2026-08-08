@@ -5,9 +5,12 @@ import com.zaxxer.hikari.HikariDataSource;
 import dev.nulli0n.eev.config.CurrencyDefinition;
 import dev.nulli0n.eev.config.PluginConfig;
 import dev.nulli0n.eev.data.Models.Balance;
+import dev.nulli0n.eev.data.Models.AdjustmentResult;
+import dev.nulli0n.eev.data.Models.AdjustmentType;
 import dev.nulli0n.eev.data.Models.CampaignPreview;
 import dev.nulli0n.eev.data.Models.CampaignProgress;
 import dev.nulli0n.eev.data.Models.CampaignResult;
+import dev.nulli0n.eev.data.Models.GrantResult;
 import dev.nulli0n.eev.data.Models.Notification;
 import dev.nulli0n.eev.data.Models.PaymentResult;
 import dev.nulli0n.eev.data.Models.PaymentStatus;
@@ -324,6 +327,45 @@ public final class Database implements AutoCloseable {
         }
     }
 
+    public Optional<AdjustmentResult> adjustBalance(UUID actorUuid, String actor, UUID targetUuid,
+                                                    CurrencyDefinition currency, BigDecimal rawAmount,
+                                                    AdjustmentType type) throws SQLException {
+        BigDecimal amount = currency.normalize(rawAmount);
+        if (amount.signum() < 0 || (type != AdjustmentType.SET && amount.signum() == 0)) {
+            throw new IllegalArgumentException("Invalid administrative balance amount");
+        }
+        UUID transactionId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                Optional<BigDecimal> current = lockBalanceIfPresent(connection, targetUuid, currency);
+                if (current.isEmpty()) {
+                    connection.rollback();
+                    return Optional.empty();
+                }
+                PlayerProfile target = findProfile(connection, targetUuid).orElseThrow();
+                BigDecimal updated = switch (type) {
+                    case GIVE -> currency.cap(currency.normalize(current.get().add(amount)));
+                    case SET -> currency.cap(amount);
+                    case TAKE -> currency.normalize(current.get().subtract(amount).max(BigDecimal.ZERO));
+                };
+                updateBalance(connection, targetUuid, currency, updated);
+                insertTransaction(connection, transactionId, type.name(), actorUuid, null, targetUuid,
+                    currency.id(), amount, "COMMITTED");
+                insertNotification(connection, targetUuid, transactionId, type.name(), currency.id(), amount, actor);
+                connection.commit();
+                return Optional.of(new AdjustmentResult(transactionId, target, type, amount, updated));
+            }
+            catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            }
+            finally {
+                connection.setAutoCommit(true);
+            }
+        }
+    }
+
     public Optional<PaymentsResult> paymentsStatus(UUID uuid, CurrencyDefinition currency) throws SQLException {
         String sql = "SELECT uuid, name, settings FROM `" + config.database().usersTable()
             + "` WHERE uuid = ? LIMIT 1";
@@ -435,6 +477,69 @@ public final class Database implements AutoCloseable {
         finishCampaign(campaignId, cursor, paid, deferred, capped, failed);
         insertCampaignTransaction(campaignId, actor, currency.id(), amount);
         return new CampaignResult(campaignId, paid, deferred, capped, failed);
+    }
+
+    public GrantResult grantPlayers(UUID transactionId, UUID actorUuid, String actor,
+                                    Set<UUID> playerUuids, CurrencyDefinition currency,
+                                    BigDecimal rawAmount) throws SQLException {
+        BigDecimal amount = currency.normalize(rawAmount);
+        if (amount.signum() <= 0) {
+            throw new IllegalArgumentException("Grant amount must be positive");
+        }
+
+        try (Connection connection = dataSource.getConnection()) {
+            insertTransaction(connection, transactionId, "PAYALL", actorUuid, null, null,
+                currency.id(), amount, "RUNNING");
+        }
+
+        long paid = 0;
+        long capped = 0;
+        long missing = 0;
+        Map<UUID, BigDecimal> balances = new LinkedHashMap<>();
+        List<UUID> players = playerUuids.stream().sorted().toList();
+        try {
+            try (Connection connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                try {
+                    for (UUID uuid : players) {
+                        Optional<BigDecimal> current = lockBalanceIfPresent(connection, uuid, currency);
+                        if (current.isEmpty()) {
+                            missing++;
+                            continue;
+                        }
+                        BigDecimal intended = currency.normalize(current.get().add(amount));
+                        BigDecimal updated = currency.cap(intended);
+                        if (updated.compareTo(intended) < 0) {
+                            capped++;
+                        }
+                        updateBalance(connection, uuid, currency, updated);
+                        insertNotification(connection, uuid, transactionId, "PAYALL", currency.id(), amount,
+                            actor);
+                        balances.put(uuid, updated);
+                        paid++;
+                    }
+                    updateTransactionStatus(connection, transactionId, "COMMITTED");
+                    connection.commit();
+                }
+                catch (SQLException | RuntimeException exception) {
+                    connection.rollback();
+                    throw exception;
+                }
+                finally {
+                    connection.setAutoCommit(true);
+                }
+            }
+            return new GrantResult(transactionId, balances, paid, capped, missing);
+        }
+        catch (SQLException | RuntimeException exception) {
+            try {
+                updateTransactionStatus(transactionId, "FAILED");
+            }
+            catch (SQLException statusException) {
+                exception.addSuppressed(statusException);
+            }
+            throw exception;
+        }
     }
 
     public List<CampaignProgress> recoverableCampaigns() throws SQLException {
@@ -563,6 +668,18 @@ public final class Database implements AutoCloseable {
         return users;
     }
 
+    private Optional<PlayerProfile> findProfile(Connection connection, UUID uuid) throws SQLException {
+        String sql = "SELECT uuid, name FROM `" + config.database().usersTable() + "` WHERE uuid = ? LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, uuid.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next()
+                    ? Optional.of(new PlayerProfile(readUuid(result, "uuid"), result.getString("name")))
+                    : Optional.empty();
+            }
+        }
+    }
+
     private BigDecimal lockBalance(Connection connection, UUID uuid, CurrencyDefinition currency)
         throws SQLException {
         String sql = "SELECT `" + currency.column() + "` FROM `" + config.database().usersTable()
@@ -574,6 +691,20 @@ public final class Database implements AutoCloseable {
                     throw new SQLException("ExcellentEconomy user not found: " + uuid);
                 }
                 return currency.normalize(result.getBigDecimal(1));
+            }
+        }
+    }
+
+    private Optional<BigDecimal> lockBalanceIfPresent(Connection connection, UUID uuid,
+                                                       CurrencyDefinition currency) throws SQLException {
+        String sql = "SELECT `" + currency.column() + "` FROM `" + config.database().usersTable()
+            + "` WHERE uuid = ? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, uuid.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next()
+                    ? Optional.of(currency.normalize(result.getBigDecimal(1)))
+                    : Optional.empty();
             }
         }
     }
@@ -620,6 +751,22 @@ public final class Database implements AutoCloseable {
             statement.setString(4, currency);
             statement.setBigDecimal(5, amount);
             statement.setString(6, source);
+            statement.executeUpdate();
+        }
+    }
+
+    private void updateTransactionStatus(UUID transactionId, String status) throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            updateTransactionStatus(connection, transactionId, status);
+        }
+    }
+
+    private void updateTransactionStatus(Connection connection, UUID transactionId, String status)
+        throws SQLException {
+        String sql = "UPDATE eev_transactions SET status = ? WHERE transaction_id = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status);
+            statement.setString(2, transactionId.toString());
             statement.executeUpdate();
         }
     }
